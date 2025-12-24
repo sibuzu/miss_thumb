@@ -1,0 +1,112 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MissAV Viewer - huntb-604</title>
+    <style>
+        body { background: #222; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        h1 { margin-bottom: 10px; }
+        .container { width: 100%; max-width: 1000px; text-align: center; }
+        .img-container { margin: 20px 0; background: #000; min-height: 400px; display: flex; align-items: center; justify-content: center; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        img { max-width: 100%; max-height: 80vh; display: block; }
+        .controls { display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+        button { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; transition: background 0.2s; }
+        button:hover { background: #2563eb; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        input[type=range] { width: 300px; cursor: pointer; }
+        input[type=number] { width: 60px; padding: 5px; text-align: center; border-radius: 4px; border: none; }
+        .info { font-size: 1.2em; margin-bottom: 15px; background: #333; padding: 10px 20px; border-radius: 20px; display: inline-block; }
+        .time-range { color: #4ade80; font-weight: bold; margin-left: 10px; }
+        .nav-links { margin-bottom: 20px; color: #aaa; }
+        a { color: #60a5fa; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>huntb-604</h1>
+    <div class="nav-links">
+        <a href="https://missav.ai/ja/huntb-604" target="_blank">Original Video</a> | 
+        <a href="https://surrit.com/7ee563f7-70ad-4d37-aa6d-43cdb0f23fd7/1280x720/video.m3u8" target="_blank">M3U8 Stream</a>
+    </div>
+
+    <div class="container">
+        <div class="info">
+            <span id="index-display">Image 0 / 166</span>
+            <span class="time-range" id="time-display">00:00:00 ~ 00:01:12</span>
+        </div>
+
+        <div class="controls">
+            <button onclick="prev()">Previous</button>
+            <input type="range" id="slider" min="0" max="166" value="0" oninput="jumpTo(this.value)">
+            <button onclick="next()">Next</button>
+            
+            <span style="margin-left: 20px; border-left: 1px solid #555; padding-left: 20px;">
+                Jump to: <input type="number" id="jump-input" min="0" max="166" value="0" onchange="jumpTo(this.value)">
+            </span>
+        </div>
+
+        <div class="img-container">
+            <img id="viewer-img" src="" alt="Snapshot">
+        </div>
+    </div>
+
+    <script>
+        const seekBase = "https://nineyu.com/7ee563f7-70ad-4d37-aa6d-43cdb0f23fd7/seek";
+        const totalSnapshots = 167;
+        let currentIndex = 0;
+
+        function formatTime(totalSeconds) {
+            const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
+            const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
+            const s = (totalSeconds % 60).toString().padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
+        function updateView() {
+            // Clamp index
+            if (currentIndex < 0) currentIndex = 0;
+            if (currentIndex >= totalSnapshots) currentIndex = totalSnapshots - 1;
+
+            // Update Image
+            const imgUrl = `${seekBase}/_${currentIndex}.jpg`;
+            document.getElementById('viewer-img').src = imgUrl;
+
+            // Update Info
+            const startTime = currentIndex * 72;
+            const endTime = startTime + 72;
+            document.getElementById('index-display').innerText = `Image ${currentIndex} / ${totalSnapshots - 1}`;
+            document.getElementById('time-display').innerText = `${formatTime(startTime)} ~ ${formatTime(endTime)}`;
+
+            // Update Controls
+            document.getElementById('slider').value = currentIndex;
+            document.getElementById('jump-input').value = currentIndex;
+        }
+
+        function prev() {
+            currentIndex--;
+            updateView();
+        }
+
+        function next() {
+            currentIndex++;
+            updateView();
+        }
+
+        function jumpTo(val) {
+            currentIndex = parseInt(val);
+            updateView();
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') prev();
+            if (e.key === 'ArrowRight') next();
+        });
+
+        // Init
+        updateView();
+    </script>
+</body>
+</html>
