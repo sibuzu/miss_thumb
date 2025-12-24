@@ -103,6 +103,9 @@ def main():
                     num_snapshots = int(total_seconds / 72) + 1
                     print(f"Total Seconds: {total_seconds}, Snapshots: {num_snapshots}")
 
+                    width_pixels = 720
+                    height_pixels = 405
+                    
                     html_content = f"""
 <!DOCTYPE html>
 <html lang="en">
@@ -111,22 +114,54 @@ def main():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MissAV Viewer - {user_input}</title>
     <style>
-        body {{ background: #222; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }}
-        h1 {{ margin-bottom: 10px; }}
+        body {{ background: #222; color: #eee; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }}
+        h1 {{ margin: 0 0 10px 0; font-size: 1.5rem; }}
         .container {{ width: 100%; max-width: 1000px; text-align: center; }}
-        .img-container {{ margin: 20px 0; background: #000; min-height: 400px; display: flex; align-items: center; justify-content: center; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }}
-        img {{ max-width: 100%; max-height: 80vh; display: block; }}
-        .controls {{ display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }}
-        button {{ background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; transition: background 0.2s; }}
-        button:hover {{ background: #2563eb; }}
-        button:disabled {{ background: #555; cursor: not-allowed; }}
-        input[type=range] {{ width: 300px; cursor: pointer; }}
-        input[type=number] {{ width: 60px; padding: 5px; text-align: center; border-radius: 4px; border: none; }}
-        .info {{ font-size: 1.2em; margin-bottom: 15px; background: #333; padding: 10px 20px; border-radius: 20px; display: inline-block; }}
-        .time-range {{ color: #4ade80; font-weight: bold; margin-left: 10px; }}
+        
         .nav-links {{ margin-bottom: 20px; color: #aaa; }}
         a {{ color: #60a5fa; text-decoration: none; }}
-        a:hover {{ text-decoration: underline; }}
+        
+        /* Viewer Area */
+        .viewer-area {{ position: relative; display: inline-block; margin: 20px 0; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }}
+        .img-container {{ display: block; }}
+        img {{ display: block; max-width: 100%; height: auto; }}
+        
+        /* Grid Overlay */
+        .grid-overlay {{ 
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0; 
+            display: grid; 
+            grid-template-columns: repeat(6, 1fr); 
+            grid-template-rows: repeat(6, 1fr); 
+        }}
+        .grid-cell {{ 
+            border: 1px solid rgba(255,255,255,0.1); 
+            cursor: pointer; 
+            position: relative;
+        }}
+        .grid-cell:hover {{ background: rgba(255,255,255,0.2); }}
+        .grid-cell.selected {{ background: rgba(74, 222, 128, 0.4); border: 1px solid rgba(74, 222, 128, 0.8); }}
+        .grid-cell.pending-start {{ background: rgba(96, 165, 250, 0.6); box-shadow: inset 0 0 0 3px #2563eb; }}
+        .grid-cell.active-cursor {{ box-shadow: inset 0 0 0 2px #fff; }}
+
+        /* Controls */
+        .controls-row {{ display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 15px; }}
+        button {{ background: #374151; color: white; border: 1px solid #555; padding: 8px 16px; border-radius: 4px; cursor: pointer; transition: 0.2s; }}
+        button:hover {{ background: #4b5563; }}
+        button.primary {{ background: #2563eb; border-color: #2563eb; }}
+        button.primary:hover {{ background: #1d4ed8; }}
+        button.danger {{ background: #dc2626; border-color: #dc2626; }}
+        button.danger:hover {{ background: #b91c1c; }}
+        
+        input[type=range] {{ width: 200px; }}
+        input[type=number] {{ width: 60px; padding: 5px; background: #1f2937; border: 1px solid #374151; color: white; border-radius: 4px; }}
+        
+        .info-panel {{ background: #1f2937; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: left; display: inline-block; min-width: 600px; }}
+        .info-row {{ display: flex; justify-content: space-between; margin-bottom: 5px; }}
+        .highlight {{ color: #4ade80; font-weight: bold; }}
+        
+        .command-box {{ width: 100%; box-sizing: border-box; background: #111; color: #4ade80; padding: 10px; border-radius: 4px; border: 1px solid #333; font-family: monospace; margin-top: 10px; word-break: break-all; white-space: pre; overflow-x: auto; }}
+        
+        .selection-actions {{ margin-top: 10px; border-top: 1px solid #333; padding-top: 10px; }}
     </style>
 </head>
 <body>
@@ -137,30 +172,89 @@ def main():
     </div>
 
     <div class="container">
-        <div class="info">
-            <span id="index-display">Image 0 / {num_snapshots - 1}</span>
-            <span class="time-range" id="time-display">00:00:00 ~ 00:01:12</span>
+        <!-- Info & Selection Status -->
+        <div class="info-panel">
+            <div class="info-row">
+                <span>Main Snapshot: <span id="main-idx" class="highlight">0</span> / {num_snapshots - 1}</span>
+                <span>Time: <span id="main-time" class="highlight">00:00:00</span></span>
+            </div>
+            <div class="info-row">
+                <span>Hovered Sub-Snap: <span id="sub-idx">--</span> (+<span id="sub-time">--</span>s)</span>
+                <span>Selection: <span id="sel-count" class="highlight">0</span> ranges</span>
+            </div>
+            
+            <input type="hidden" id="pending-start" value="-1">
+
+            <div class="selection-actions">
+                <small>Selection Controls:</small><br>
+                <div style="margin-top: 5px;">
+                    <button class="primary" onclick="setStart()">1. Set Start Snap</button>
+                    <button class="primary" onclick="setEnd()">2. Set End Snap</button>
+                    <button class="danger" onclick="clearAll()" style="margin-left: 20px;">Clear All Selection</button>
+                </div>
+                <div style="margin-top: 5px; font-style: italic; color: #aaa; font-size: 0.9em;">
+                    Create multiple ranges by setting Start/End repeatedly.
+                </div>
+            </div>
+
+            <div style="margin-top: 15px;">
+                 <strong>Download & Merge Command (FFmpeg):</strong>
+                 <textarea id="ffmpeg-cmd" class="command-box" rows="10" readonly></textarea>
+                 <div style="display: flex; gap: 10px; margin-top: 5px;">
+                     <button onclick="copyCmd()" style="flex: 1;">Copy Command</button>
+                     <button onclick="downloadCmd()" style="flex: 1; background: #059669; border-color: #059669;">Download .sh</button>
+                 </div>
+            </div>
         </div>
 
-        <div class="controls">
+        <!-- Navigation -->
+        <div class="controls-row">
             <button onclick="prev()">Previous</button>
             <input type="range" id="slider" min="0" max="{num_snapshots - 1}" value="0" oninput="jumpTo(this.value)">
             <button onclick="next()">Next</button>
             
-            <span style="margin-left: 20px; border-left: 1px solid #555; padding-left: 20px;">
-                Jump to: <input type="number" id="jump-input" min="0" max="{num_snapshots - 1}" value="0" onchange="jumpTo(this.value)">
+            <span style="margin-left: 15px; border-left: 1px solid #555; padding-left: 15px;">
+                Jump: <input type="number" id="jump-input" min="0" max="{num_snapshots - 1}" value="0" onchange="jumpTo(this.value)">
             </span>
         </div>
 
-        <div class="img-container">
-            <img id="viewer-img" src="" alt="Snapshot">
+        <!-- Viewer -->
+        <div class="viewer-area">
+            <div class="img-container">
+                <img id="viewer-img" src="" alt="Snapshot">
+            </div>
+            <div id="grid-overlay" class="grid-overlay">
+                <!-- Grid items generated by JS -->
+            </div>
         </div>
     </div>
 
     <script>
         const seekBase = "{seek_base}";
         const totalSnapshots = {num_snapshots};
+        const m3u8Url = "{m3u8_url}";
+        const videoId = "{user_input}"; 
+        
         let currentIndex = 0;
+        let activeSubIndex = null; 
+        
+        const CELLS_PER_SHEET = 36;
+        const SECONDS_PER_CELL = 2;
+        const SECONDS_PER_SHEET = CELLS_PER_SHEET * SECONDS_PER_CELL; // 72
+
+        // Ranges: Array of [startGlobal, endGlobal]
+        let ranges = [];
+        let pendingStart = -1;
+        
+        const gridOverlay = document.getElementById('grid-overlay');
+        for(let i=0; i<CELLS_PER_SHEET; i++) {{
+            const cell = document.createElement('div');
+            cell.className = 'grid-cell';
+            cell.dataset.idx = i;
+            cell.onclick = (e) => onCellClick(i, e);
+            cell.onmouseover = () => onCellHover(i);
+            gridOverlay.appendChild(cell);
+        }}
 
         function formatTime(totalSeconds) {{
             const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
@@ -170,47 +264,192 @@ def main():
         }}
 
         function updateView() {{
-            // Clamp index
             if (currentIndex < 0) currentIndex = 0;
             if (currentIndex >= totalSnapshots) currentIndex = totalSnapshots - 1;
 
-            // Update Image
             const imgUrl = `${{seekBase}}/_${{currentIndex}}.jpg`;
             document.getElementById('viewer-img').src = imgUrl;
 
-            // Update Info
-            const startTime = currentIndex * 72;
-            const endTime = startTime + 72;
-            document.getElementById('index-display').innerText = `Image ${{currentIndex}} / ${{totalSnapshots - 1}}`;
-            document.getElementById('time-display').innerText = `${{formatTime(startTime)}} ~ ${{formatTime(endTime)}}`;
-
-            // Update Controls
+            const startTime = currentIndex * SECONDS_PER_SHEET;
+            document.getElementById('main-idx').innerText = currentIndex;
+            document.getElementById('main-time').innerText = formatTime(startTime);
+            
             document.getElementById('slider').value = currentIndex;
             document.getElementById('jump-input').value = currentIndex;
+
+            renderGridSelection();
         }}
 
-        function prev() {{
-            currentIndex--;
-            updateView();
+        function onCellHover(subIdx) {{
+            const timeOffset = subIdx * SECONDS_PER_CELL;
+            document.getElementById('sub-idx').innerText = subIdx;
+            document.getElementById('sub-time').innerText = timeOffset;
         }}
 
-        function next() {{
-            currentIndex++;
-            updateView();
+        function onCellClick(subIdx, e) {{
+            activeSubIndex = subIdx;
+            renderGridSelection();
+        }}
+        
+        function getGlobalIndex(sheetIdx, subIdx) {{
+            return sheetIdx * CELLS_PER_SHEET + subIdx;
         }}
 
-        function jumpTo(val) {{
-            currentIndex = parseInt(val);
-            updateView();
+        function setStart() {{
+            if (activeSubIndex === null) return alert("Select a snapshot cell first.");
+            pendingStart = getGlobalIndex(currentIndex, activeSubIndex);
+            renderGridSelection();
         }}
 
-        // Keyboard navigation
+        function setEnd() {{
+            if (activeSubIndex === null) return alert("Select a snapshot cell first.");
+            if (pendingStart === -1) return alert("Please set Start Snap first (Key '1').");
+            
+            const endGlob = getGlobalIndex(currentIndex, activeSubIndex);
+            
+            // Normalize start/end
+            const s = Math.min(pendingStart, endGlob);
+            const e = Math.max(pendingStart, endGlob);
+            
+            // Add range
+            ranges.push([s, e]);
+            pendingStart = -1; // Reset pending
+            
+            // Merge overlaps? 
+            // Simple merge strategy: Sort by start, then merge
+            ranges.sort((a,b) => a[0] - b[0]);
+            
+            let merged = [];
+            if(ranges.length > 0) {{
+                let curr = ranges[0];
+                for(let i=1; i<ranges.length; i++) {{
+                    if (ranges[i][0] <= curr[1] + 1) {{ // +1 allows adjacent merging
+                        curr[1] = Math.max(curr[1], ranges[i][1]);
+                    }} else {{
+                        merged.push(curr);
+                        curr = ranges[i];
+                    }}
+                }}
+                merged.push(curr);
+            }}
+            ranges = merged;
+            
+            renderGridSelection();
+            updateCommand();
+        }}
+
+        function clearAll() {{
+            ranges = [];
+            pendingStart = -1;
+            renderGridSelection();
+            updateCommand();
+        }}
+
+        function renderGridSelection() {{
+            const cells = document.querySelectorAll('.grid-cell');
+            cells.forEach(cell => {{
+                const subIdx = parseInt(cell.dataset.idx);
+                const globalIdx = getGlobalIndex(currentIndex, subIdx);
+                
+                cell.className = 'grid-cell'; // Reset logic
+
+                // Active Cursor
+                if (subIdx === activeSubIndex) cell.classList.add('active-cursor');
+
+                // Pending Start
+                if (pendingStart !== -1 && globalIdx === pendingStart) {{
+                    cell.classList.add('pending-start');
+                }}
+
+                // Selected Ranges
+                let isSelected = false;
+                for(const r of ranges) {{
+                    if (globalIdx >= r[0] && globalIdx <= r[1]) {{
+                        isSelected = true;
+                        break;
+                    }}
+                }}
+                if (isSelected) cell.classList.add('selected');
+            }});
+        }}
+
+        function updateCommand() {{
+            document.getElementById('sel-count').innerText = ranges.length;
+            
+            if (ranges.length === 0) {{
+                document.getElementById('ffmpeg-cmd').value = "";
+                return;
+            }}
+
+            let cmds = "#!/bin/bash\\n\\n";
+            let mergeTxtContent = "";
+            let generatedFiles = [];
+
+            ranges.forEach((rng, idx) => {{
+                const startIdx = rng[0];
+                const endIdx = rng[1];
+                const count = endIdx - startIdx + 1;
+                
+                const startSec = startIdx * SECONDS_PER_CELL;
+                const durSec = count * SECONDS_PER_CELL;
+                
+                const outName = `${{videoId}}_part${{idx+1}}.mp4`;
+                generatedFiles.push(outName);
+                
+                cmds += `# Part ${{idx+1}}: ${{formatTime(startSec)}} (Duration: ${{durSec}}s)\\n`;
+                cmds += `ffmpeg -nostdin -ss ${{startSec}} -i "${{m3u8Url}}" -t ${{durSec}} -c copy "${{outName}}" -y\\n`;
+                
+                mergeTxtContent += `file '${{outName}}'\\n`;
+            }});
+            
+            if (generatedFiles.length > 1) {{
+                cmds += "\\n# Merge all parts\\n";
+                // We use printf to create the list file to avoid confusing quote escaping in JS strings
+                cmds += `cat <<EOF > merge_list.txt\\n${{mergeTxtContent}}EOF\\n`;
+                cmds += `ffmpeg -nostdin -f concat -safe 0 -i merge_list.txt -c copy "${{videoId}}_merged.mp4" -y\\n`;
+                cmds += `rm merge_list.txt\\n`;
+                // Optional: cleanup parts
+                // cmds += `rm ${{generatedFiles.join(' ')}}`; 
+            }}
+            
+            document.getElementById('ffmpeg-cmd').value = cmds;
+        }}
+
+        function copyCmd() {{
+            const el = document.getElementById('ffmpeg-cmd');
+            el.select();
+            document.execCommand('copy');
+        }}
+
+        function downloadCmd() {{
+             const content = document.getElementById('ffmpeg-cmd').value;
+             if (!content) return alert("Nothing to download.");
+             
+             const blob = new Blob([content], {{ type: 'text/x-shellscript' }});
+             const url = URL.createObjectURL(blob);
+             const a = document.createElement('a');
+             a.href = url;
+             a.download = 'download.sh';
+             document.body.appendChild(a);
+             a.click();
+             document.body.removeChild(a);
+             URL.revokeObjectURL(url);
+        }}
+
+        function prev() {{ currentIndex--; updateView(); activeSubIndex = null; }}
+        function next() {{ currentIndex++; updateView(); activeSubIndex = null; }}
+        function jumpTo(val) {{ currentIndex = parseInt(val); updateView(); activeSubIndex = null; }}
+
         document.addEventListener('keydown', (e) => {{
+            // Ignore if in inputs
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
             if (e.key === 'ArrowLeft') prev();
             if (e.key === 'ArrowRight') next();
+            if (e.key === '1') setStart();
+            if (e.key === '2') setEnd();
         }});
 
-        // Init
         updateView();
     </script>
 </body>
