@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}{{ article.id }} | MissAV Library{% endblock %}
+
+{% block content %}
+<a class="back-link" href="{{ url_for('index') }}">← 回到首頁</a>
+
+<article class="detail-card article-page">
+    <div class="cover-wrap detail-cover">
+        {% if article.cover_url %}
+            <img src="{{ article.cover_url }}" alt="{{ article.id }} cover">
+        {% else %}
+            <div class="cover-fallback">{{ article.id[:6]|upper }}</div>
+        {% endif %}
+    </div>
+
+    <p class="detail-id">{{ article.id }}</p>
+    <h1 class="detail-title">{{ article.title or article.id }}</h1>
+
+    <h2 class="section-label">Description</h2>
+    {% if article.description %}
+        <p class="description">{{ article.description }}</p>
+    {% else %}
+        <div class="empty-box">No description.</div>
+    {% endif %}
+
+    <h2 class="section-label">Keywords</h2>
+    {% if article.keywords_list %}
+        <div class="keywords">
+            {% for k in article.keywords_list %}
+                <span class="keyword-chip">{{ k }}</span>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-box">No keywords.</div>
+    {% endif %}
+
+    <h2 class="section-label">Preference</h2>
+    <form method="post" action="{{ url_for('set_article_dislike', article_id=article.id) }}">
+        <label style="display:inline-flex; align-items:center; gap:8px; font-size:0.95rem; color:#294268;">
+            <input type="checkbox" name="dislike" {% if article.dislike %}checked{% endif %}>
+            dislike
+        </label>
+        <button type="submit" style="margin-left:12px;">Save</button>
+    </form>
+</article>
+
+<section class="article-page">
+    <h2 class="section-label" style="margin-top:0;">References ({{ refs|length }})</h2>
+    {% if refs %}
+    <div class="cards-grid">
+        {% for ref in refs %}
+        <a class="card" href="{{ url_for('article_detail', article_id=ref.id) }}">
+            <div class="cover-wrap">
+                {% if ref.cover_url %}
+                    <img src="{{ ref.cover_url }}" alt="{{ ref.id }} cover" loading="lazy">
+                {% else %}
+                    <div class="cover-fallback">{{ ref.id[:6]|upper }}</div>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <p class="card-id">{{ ref.id }}</p>
+                <p class="card-title">{{ ref.title or ref.id }}</p>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-box">這篇文章目前沒有 refs。</div>
+    {% endif %}
+</section>
+{% endblock %}
