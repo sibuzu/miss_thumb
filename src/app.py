@@ -1,12 +1,29 @@
 from flask import Flask, render_template, request, jsonify
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
+from urllib.parse import urlparse
 import re
 import sys
+import os
 
 app = Flask(__name__)
 
+def _extract_video_id(url_or_id):
+    if url_or_id.startswith('http'):
+        parsed = urlparse(url_or_id)
+        segments = [seg for seg in parsed.path.split('/') if seg]
+        if segments:
+            return segments[-1]
+    return url_or_id
+
+def _safe_id_for_filename(video_id):
+    # Keep common ID chars such as letters, numbers, dash, underscore, and dot.
+    safe = re.sub(r'[^A-Za-z0-9._-]', '_', video_id)
+    return safe or "unknown"
+
 def extract_m3u8(url_or_id):
+    video_id = _extract_video_id(url_or_id)
+
     # Determine full URL
     if url_or_id.startswith('http'):
         url = url_or_id
@@ -14,12 +31,13 @@ def extract_m3u8(url_or_id):
         # Default base URL constructed from ID
         # User example: huntb-604 -> https://missav.ai/ja/huntb-604
         # We might need to handle different ID formats, but this is a starter
-        url = f"https://missav.ai/ja/{url_or_id}"
+        url = f"https://missav.ai/ja/{video_id}"
 
     print(f"Processing URL: {url}")
     
     extracted_string = None
     error_message = None
+    duration = None
 
     try:
         with sync_playwright() as p:
@@ -45,6 +63,14 @@ def extract_m3u8(url_or_id):
                     print("Selector timeout, checking content anyway...")
 
                 content = page.content()
+                safe_id = _safe_id_for_filename(video_id)
+                debug_path = os.path.join(
+                    os.path.dirname(__file__),
+                    f"debug_missing_{safe_id}.html"
+                )
+                with open(debug_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                print(f"Saved debug HTML: {debug_path}")
                 
                 # Regex matching
                 # Pattern: '...'.split('|')
@@ -55,7 +81,6 @@ def extract_m3u8(url_or_id):
                     error_message = "Could not find the obfuscated string pattern in page content."
                 
                 # Extract Duration
-                duration = None
                 # Try 1: Meta tag
                 try:
                     # Often in <meta property="video:duration" content="1234"> (seconds)
