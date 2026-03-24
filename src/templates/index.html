@@ -1,154 +1,92 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "base.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MissAV String Extractor</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            max-width: 800px;
-            margin: 2rem auto;
-            padding: 0 1rem;
-        }
+{% block title %}MissAV Library{% endblock %}
 
-        .container {
-            background: #f9f9f9;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
+{% block content %}
+<section class="hero">
+    <h1>MissAV Downloaded Library</h1>
+    <p>已下載文章清單，點擊任一卡片可查看 description、keywords 與 refs。</p>
+</section>
 
-        h1 {
-            margin-top: 0;
-            color: #333;
-        }
+<form method="get" action="{{ url_for('index') }}" class="search-row">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search in id / tags / description">
+    {% if active_tag %}
+        <input type="hidden" name="tag" value="{{ active_tag }}">
+    {% endif %}
+    <button type="submit">Search</button>
+    {% if q or active_tag %}
+        <a class="clear-link" href="{{ url_for('index') }}">Clear</a>
+    {% endif %}
+</form>
 
-        .input-group {
-            margin-bottom: 1rem;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: bold;
-        }
-
-        input[type="text"] {
-            width: 100%;
-            padding: 0.8rem;
-            box-sizing: border-box;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-
-        button {
-            background: #007bff;
-            color: white;
-            border: none;
-            padding: 0.8rem 1.5rem;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 1rem;
-        }
-
-        button:hover {
-            background: #0056b3;
-        }
-
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-
-        .result {
-            margin-top: 2rem;
-            padding: 1rem;
-            background: #e9ecef;
-            border-left: 5px solid #007bff;
-            word-break: break-all;
-            font-family: monospace;
-        }
-
-        .error {
-            color: #dc3545;
-            background: #f8d7da;
-            border-color: #f5c6cb;
-            border-left: 5px solid #dc3545;
-        }
-
-        .loading {
-            display: none;
-            color: #666;
-            font-style: italic;
-            margin-top: 1rem;
-        }
-    </style>
-</head>
-
-<body>
-    <div class="container">
-        <h1>MissAV Extractor</h1>
-        <div class="input-group">
-            <label for="urlInput">Enter URL or ID:</label>
-            <input type="text" id="urlInput" placeholder="e.g. https://missav.ai/ja/huntb-604 or huntb-604" required>
-        </div>
-        <button id="extractBtn" onclick="extract()">Extract</button>
-        <div id="loading" class="loading">Extraction in progress, please wait (this may take 10-20 seconds)...</div>
-
-        <div id="resultContainer" style="display: none;">
-            <h3>Result:</h3>
-            <div id="result" class="result"></div>
-        </div>
+<details class="tag-block" {% if active_tag %}open{% endif %}>
+    <summary>Keywords {% if active_tag %}(active: {{ active_tag }}){% endif %}</summary>
+    <div class="tag-list">
+        {% for t in hot_tags %}
+            <a
+                class="tag-chip {% if active_tag and active_tag|lower == t.name|lower %}active{% endif %}"
+                href="{{ url_for('index', q=q, tag=t.name) }}"
+            >
+                {{ t.name }} <span>{{ t.count }}</span>
+            </a>
+        {% endfor %}
     </div>
+</details>
 
-    <script>
-        async function extract() {
-            const input = document.getElementById('urlInput').value.trim();
-            if (!input) return;
+<p class="meta-line">
+    Total: <strong>{{ total_items }}</strong> articles
+    | Page <strong>{{ page }}</strong> / <strong>{{ total_pages }}</strong>
+</p>
 
-            const btn = document.getElementById('extractBtn');
-            const loading = document.getElementById('loading');
-            const resultContainer = document.getElementById('resultContainer');
-            const resultDiv = document.getElementById('result');
+{% if articles %}
+<div class="cards-grid">
+    {% for article in articles %}
+    <a class="card" href="{{ url_for('article_detail', article_id=article.id) }}">
+        <div class="cover-wrap">
+            {% if article.cover_url %}
+                <img src="{{ article.cover_url }}" alt="{{ article.id }} cover" loading="lazy">
+            {% else %}
+                <div class="cover-fallback">{{ article.id[:6]|upper }}</div>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            <p class="card-id">{{ article.id }}</p>
+            <p class="card-title">{{ article.title or article.id }}</p>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-box">目前沒有已下載文章。先執行 crawler 下載資料後再重新整理。</div>
+{% endif %}
 
-            btn.disabled = true;
-            loading.style.display = 'block';
-            resultContainer.style.display = 'none';
-            resultDiv.className = 'result';
-            resultDiv.innerText = '';
+{% if total_pages > 1 %}
+<nav class="pager" aria-label="Pagination">
+    {% if page > 1 %}
+        <a href="{{ url_for('index', page=page-1, q=q, tag=active_tag) }}">Prev</a>
+    {% endif %}
 
-            try {
-                const response = await fetch('/extract', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ input: input })
-                });
+    {% for p in range(1, total_pages + 1) %}
+        {% if p == page %}
+            <span class="current">{{ p }}</span>
+        {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+            <a href="{{ url_for('index', page=p, q=q, tag=active_tag) }}">{{ p }}</a>
+        {% elif p == page - 3 or p == page + 3 %}
+            <span>...</span>
+        {% endif %}
+    {% endfor %}
 
-                const data = await response.json();
+    {% if page < total_pages %}
+        <a href="{{ url_for('index', page=page+1, q=q, tag=active_tag) }}">Next</a>
+    {% endif %}
 
-                resultContainer.style.display = 'block';
-                if (data.success) {
-                    let html = `<strong>Extracted String:</strong><br>${data.data}`;
-                    if (data.duration) {
-                        html += `<br><br><strong>Duration:</strong> ${data.duration}`;
-                    }
-                    resultDiv.innerHTML = html;
-                } else {
-                    resultDiv.className = 'result error';
-                    resultDiv.innerText = 'Error: ' + data.error;
-                }
-            } catch (e) {
-                resultContainer.style.display = 'block';
-                resultDiv.className = 'result error';
-                resultDiv.innerText = 'Network error: ' + e.message;
-            } finally {
-                btn.disabled = false;
-                loading.style.display = 'none';
-            }
-        }
-    </script>
-</body>
-
-</html>
+    <form method="get" action="{{ url_for('index') }}" class="jump-form">
+        {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+        {% if active_tag %}<input type="hidden" name="tag" value="{{ active_tag }}">{% endif %}
+        <label for="jump-page">Go</label>
+        <input id="jump-page" type="number" name="page" min="1" max="{{ total_pages }}" value="{{ page }}">
+        <button type="submit">Jump</button>
+    </form>
+</nav>
+{% endif %}
+{% endblock %}

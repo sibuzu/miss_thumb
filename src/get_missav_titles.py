@@ -205,7 +205,6 @@ def ensure_schema(conn):
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
             description TEXT,
-            keywords TEXT,
             cover TEXT
         );
 
@@ -216,11 +215,33 @@ def ensure_schema(conn):
         );
 
         CREATE INDEX IF NOT EXISTS idx_refs_to ON article_refs(to_article_id);
+
+        CREATE TABLE IF NOT EXISTS tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS article_tags (
+            article_id TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (article_id, tag_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_article_tags_article ON article_tags(article_id);
+        CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags(tag_id);
         """
     )
+    cols = conn.execute("PRAGMA table_info(articles)").fetchall()
+    col_names = {c[1] for c in cols}
+    if "dislike" not in col_names:
+        conn.execute("ALTER TABLE articles ADD COLUMN dislike INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
 
 
 def is_article_downloaded(conn, article_id):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    has_cover_file = os.path.exists(cover_full_path(base_dir, article_id))
+
     row = conn.execute(
         """
         SELECT 1
@@ -228,19 +249,36 @@ def is_article_downloaded(conn, article_id):
         WHERE id = ?
           AND (
             description IS NOT NULL
-            OR keywords IS NOT NULL
+            OR EXISTS (
+                SELECT 1 FROM article_tags at WHERE at.article_id = articles.id
+            )
             OR (title IS NOT NULL AND title <> id)
           )
         LIMIT 1
         """,
         (article_id,),
     ).fetchone()
-    return row is not None
+    db_complete = row is not None
+    return db_complete and has_cover_file
+
+
+def is_article_disliked(conn, article_id):
+    row = conn.execute(
+        "SELECT COALESCE(dislike, 0) FROM articles WHERE id = ? LIMIT 1",
+        (article_id,),
+    ).fetchone()
+    return bool(row and row[0])
 
 
 def get_ref_ids(conn, from_id):
     rows = conn.execute(
-        "SELECT to_article_id FROM article_refs WHERE from_article_id = ?",
+        """
+        SELECT r.to_article_id
+        FROM article_refs r
+        JOIN articles a ON a.id = r.to_article_id
+        WHERE r.from_article_id = ?
+          AND COALESCE(a.dislike, 0) = 0
+        """,
         (from_id,),
     ).fetchall()
     return [r[0] for r in rows if r and r[0]]
@@ -253,8 +291,9 @@ def pick_random_seed(conn):
         SELECT id
         FROM articles
         WHERE description IS NULL
-          AND keywords IS NULL
+          AND NOT EXISTS (SELECT 1 FROM article_tags at WHERE at.article_id = articles.id)
           AND (title = id OR title IS NULL)
+          AND COALESCE(dislike, 0) = 0
         ORDER BY RANDOM()
         LIMIT 1
         """
@@ -262,25 +301,44 @@ def pick_random_seed(conn):
     if row:
         return row[0]
 
-    row = conn.execute("SELECT id FROM articles ORDER BY RANDOM() LIMIT 1").fetchone()
+    row = conn.execute(
+        "SELECT id FROM articles WHERE COALESCE(dislike, 0) = 0 ORDER BY RANDOM() LIMIT 1"
+    ).fetchone()
     if row:
         return row[0]
     return None
 
 
-def upsert_article(conn, article_id, title, description, keywords, cover):
+def upsert_article(conn, article_id, title, description, cover):
     conn.execute(
         """
-        INSERT INTO articles (id, title, description, keywords, cover)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO articles (id, title, description, cover)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE
         SET title = excluded.title,
             description = excluded.description,
-            keywords = excluded.keywords,
             cover = excluded.cover
         """,
-        (article_id, title, description, json.dumps(keywords, ensure_ascii=False), cover),
+        (article_id, title, description, cover),
     )
+
+
+def set_article_tags(conn, article_id, keywords):
+    conn.execute("DELETE FROM article_tags WHERE article_id = ?", (article_id,))
+    if not keywords:
+        return
+
+    for kw in keywords:
+        tag_name = kw.strip()
+        if not tag_name:
+            continue
+        conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag_name,))
+        tag_row = conn.execute("SELECT id FROM tags WHERE name = ?", (tag_name,)).fetchone()
+        if tag_row:
+            conn.execute(
+                "INSERT OR IGNORE INTO article_tags (article_id, tag_id) VALUES (?, ?)",
+                (article_id, tag_row[0]),
+            )
 
 
 def insert_refs(conn, from_id, to_ids):
@@ -291,8 +349,8 @@ def insert_refs(conn, from_id, to_ids):
             continue
         conn.execute(
             """
-            INSERT INTO articles (id, title)
-            VALUES (?, ?)
+            INSERT INTO articles (id, title, dislike)
+            VALUES (?, ?, 0)
             ON CONFLICT (id) DO NOTHING
             """,
             (to_id, to_id),
@@ -323,6 +381,10 @@ def crawl_single(seed_id, limit_count, debug_flag, fetch_mode):
         while queue and downloaded < limit_count:
             article_id = queue.popleft()
 
+            if is_article_disliked(conn, article_id):
+                print(f"[SKIP] Disliked: {article_id}")
+                continue
+
             if is_article_downloaded(conn, article_id):
                 skip_downloaded += 1
                 refs_from_db = get_ref_ids(conn, article_id)
@@ -348,7 +410,8 @@ def crawl_single(seed_id, limit_count, debug_flag, fetch_mode):
 
                 # 1) Write DB first
                 planned_cover = cover_filename(article_id) if cover_url else None
-                upsert_article(conn, article_id, title, description, keywords, planned_cover)
+                upsert_article(conn, article_id, title, description, planned_cover)
+                set_article_tags(conn, article_id, keywords)
                 insert_refs(conn, article_id, refs)
                 conn.commit()
 
@@ -363,7 +426,7 @@ def crawl_single(seed_id, limit_count, debug_flag, fetch_mode):
                             print(f"[INFO] Cover saved: {saved_cover}")
 
                 for ref_id in refs:
-                    if ref_id not in discovered:
+                    if ref_id not in discovered and not is_article_disliked(conn, ref_id):
                         discovered.add(ref_id)
                         queue.append(ref_id)
 
